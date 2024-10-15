@@ -59,6 +59,7 @@ def expandTriples(terms: ParseResults) -> List[Any]:
     Expand ; and , syntax for repeat predicates, subjects
     """
     # import pdb; pdb.set_trace()
+    last_subject, last_predicate = None, None  # Used for ; and ,
     try:
         res: List[Any] = []
         if DEBUG:
@@ -66,11 +67,11 @@ def expandTriples(terms: ParseResults) -> List[Any]:
         l_ = len(terms)
         for i, t in enumerate(terms):
             if t == ",":
-                res.extend([res[-3], res[-2]])
+                res.extend([last_subject, last_predicate])
             elif t == ";":
-                if i + 1 == len(terms) or terms[i + 1] == ";" or terms[i + 1] == ".":
+                if i + 1 == l_ or terms[i + 1] in ";.":
                     continue  # this semicolon is spurious
-                res.append(res[0])
+                res.append(last_subject)
             elif isinstance(t, list):
                 # BlankNodePropertyList
                 # is this bnode the object of previous triples?
@@ -78,14 +79,19 @@ def expandTriples(terms: ParseResults) -> List[Any]:
                     res.append(t[0])
                 # is this a single [] ?
                 if len(t) > 1:
-                    res += t
+                    res += t  # Don't update last_subject/last_predicate
                 # is this bnode the subject of more triples?
                 if i + 1 < l_ and terms[i + 1] not in ".,;":
+                    last_subject = t[0]
                     res.append(t[0])
             elif isinstance(t, ParseResults):
                 res += t.asList()
             elif t != ".":
                 res.append(t)
+                if len(res) % 3 == 1:
+                    last_subject = t
+                elif len(res) % 3 == 2:
+                    last_predicate = t
             if DEBUG:
                 print(len(res), t)
         if DEBUG:
@@ -199,7 +205,8 @@ PN_PREFIX = Regex(
 )
 
 # [140] PNAME_NS ::= PN_PREFIX? ':'
-PNAME_NS = Optional(Param("prefix", PN_PREFIX)) + Suppress(":").leaveWhitespace()
+PNAME_NS = Optional(Param("prefix", PN_PREFIX)) + \
+    Suppress(":").leaveWhitespace()
 
 # [173] PN_LOCAL_ESC ::= '\' ( '_' | '~' | '.' | '-' | '!' | '$' | '&' | "'" | '(' | ')' | '*' | '+' | ',' | ';' | '=' | '/' | '?' | '#' | '@' | '%' )
 
@@ -244,7 +251,8 @@ BLANK_NODE_LABEL.setParseAction(lambda x: rdflib.BNode(x[0][2:]))
 
 # [166] VARNAME ::= ( PN_CHARS_U | [0-9] ) ( PN_CHARS_U | [0-9] | #x00B7 | [#x0300-#x036F] | [#x203F-#x2040] )*
 VARNAME = Regex(
-    "[%s0-9][%s0-9\u00B7\u0300-\u036F\u203F-\u2040]*" % (PN_CHARS_U_re, PN_CHARS_U_re),
+    "[%s0-9][%s0-9\u00B7\u0300-\u036F\u203F-\u2040]*" % (
+        PN_CHARS_U_re, PN_CHARS_U_re),
     flags=re.U,
 )
 
@@ -260,7 +268,8 @@ LANGTAG = Combine(Suppress("@") + Regex("[a-zA-Z]+(?:-[a-zA-Z0-9]+)*"))
 # [146] INTEGER ::= [0-9]+
 INTEGER = Regex(r"[0-9]+")
 # INTEGER.setResultsName('integer')
-INTEGER.setParseAction(lambda x: rdflib.Literal(x[0], datatype=rdflib.XSD.integer))
+INTEGER.setParseAction(lambda x: rdflib.Literal(
+    x[0], datatype=rdflib.XSD.integer))
 
 # [155] EXPONENT ::= [eE] [+-]? [0-9]+
 EXPONENT_re = "[eE][+-]?[0-9]+"
@@ -268,12 +277,15 @@ EXPONENT_re = "[eE][+-]?[0-9]+"
 # [147] DECIMAL ::= [0-9]* '.' [0-9]+
 DECIMAL = Regex(r"[0-9]*\.[0-9]+")  # (?![eE])
 # DECIMAL.setResultsName('decimal')
-DECIMAL.setParseAction(lambda x: rdflib.Literal(x[0], datatype=rdflib.XSD.decimal))
+DECIMAL.setParseAction(lambda x: rdflib.Literal(
+    x[0], datatype=rdflib.XSD.decimal))
 
 # [148] DOUBLE ::= [0-9]+ '.' [0-9]* EXPONENT | '.' ([0-9])+ EXPONENT | ([0-9])+ EXPONENT
-DOUBLE = Regex(r"[0-9]+\.[0-9]*%(e)s|\.([0-9])+%(e)s|[0-9]+%(e)s" % {"e": EXPONENT_re})
+DOUBLE = Regex(r"[0-9]+\.[0-9]*%(e)s|\.([0-9])+%(e)s|[0-9]+%(e)s" %
+               {"e": EXPONENT_re})
 # DOUBLE.setResultsName('double')
-DOUBLE.setParseAction(lambda x: rdflib.Literal(x[0], datatype=rdflib.XSD.double))
+DOUBLE.setParseAction(lambda x: rdflib.Literal(
+    x[0], datatype=rdflib.XSD.double))
 
 
 # [149] INTEGER_POSITIVE ::= '+' INTEGER
@@ -315,7 +327,8 @@ STRING_LITERAL_LONG1.setParseAction(
 # [159] STRING_LITERAL_LONG2 ::= '"""' ( ( '"' | '""' )? ( [^"\] | ECHAR ) )* '"""'
 # STRING_LITERAL_LONG2 = Literal('"""') + ( Optional( Literal('"') | '""'
 # ) + ZeroOrMore( ~ Literal('"\\') | ECHAR ) ) +  '"""'
-STRING_LITERAL_LONG2 = Regex('"""(?:(?:"|"")?(?:[^"\\\\]|\\\\["ntbrf\\\\]))*"""')
+STRING_LITERAL_LONG2 = Regex(
+    '"""(?:(?:"|"")?(?:[^"\\\\]|\\\\["ntbrf\\\\]))*"""')
 STRING_LITERAL_LONG2.setParseAction(
     lambda x: rdflib.Literal(decodeUnicodeEscape(x[0][3:-3]))
 )
@@ -324,7 +337,8 @@ STRING_LITERAL_LONG2.setParseAction(
 # STRING_LITERAL1 = Literal("'") + ZeroOrMore(
 # Regex(u'[^\u0027\u005C\u000A\u000D]',flags=re.U) | ECHAR ) + "'"
 
-STRING_LITERAL1 = Regex("'(?:[^'\\n\\r\\\\]|\\\\['ntbrf\\\\])*'(?!')", flags=re.U)
+STRING_LITERAL1 = Regex(
+    "'(?:[^'\\n\\r\\\\]|\\\\['ntbrf\\\\])*'(?!')", flags=re.U)
 STRING_LITERAL1.setParseAction(
     lambda x: rdflib.Literal(decodeUnicodeEscape(x[0][1:-1]))
 )
@@ -333,7 +347,8 @@ STRING_LITERAL1.setParseAction(
 # STRING_LITERAL2 = Literal('"') + ZeroOrMore (
 # Regex(u'[^\u0022\u005C\u000A\u000D]',flags=re.U) | ECHAR ) + '"'
 
-STRING_LITERAL2 = Regex('"(?:[^"\\n\\r\\\\]|\\\\["ntbrf\\\\])*"(?!")', flags=re.U)
+STRING_LITERAL2 = Regex(
+    '"(?:[^"\\n\\r\\\\]|\\\\["ntbrf\\\\])*"(?!")', flags=re.U)
 STRING_LITERAL2.setParseAction(
     lambda x: rdflib.Literal(decodeUnicodeEscape(x[0][1:-1]))
 )
@@ -360,7 +375,8 @@ A.setParseAction(lambda x: rdflib.RDF.type)
 BaseDecl = Comp("Base", Keyword("BASE") + Param("iri", IRIREF))
 
 # [6] PrefixDecl ::= 'PREFIX' PNAME_NS IRIREF
-PrefixDecl = Comp("PrefixDecl", Keyword("PREFIX") + PNAME_NS + Param("iri", IRIREF))
+PrefixDecl = Comp("PrefixDecl", Keyword("PREFIX") +
+                  PNAME_NS + Param("iri", IRIREF))
 
 # [4] Prologue ::= ( BaseDecl | PrefixDecl )*
 Prologue = Group(ZeroOrMore(BaseDecl | PrefixDecl))
@@ -437,7 +453,8 @@ GraphOrDefault = ParamList("graph", Keyword("DEFAULT")) | Optional(
 ) + ParamList("graph", iri)
 
 # [65] DataBlockValue ::= iri | RDFLiteral | NumericLiteral | BooleanLiteral | 'UNDEF'
-DataBlockValue = iri | RDFLiteral | NumericLiteral | BooleanLiteral | Keyword("UNDEF")
+DataBlockValue = iri | RDFLiteral | NumericLiteral | BooleanLiteral | Keyword(
+    "UNDEF")
 
 # [78] Verb ::= VarOrIri | A
 Verb = VarOrIri | A
@@ -492,7 +509,8 @@ PathPrimary = (
 # [91] PathElt ::= PathPrimary Optional(PathMod)
 PathElt = Comp(
     "PathElt",
-    Param("part", PathPrimary) + Optional(Param("mod", PathMod.leaveWhitespace())),
+    Param("part", PathPrimary) +
+    Optional(Param("mod", PathMod.leaveWhitespace())),
 )
 
 # [92] PathEltOrInverse ::= PathElt | '^' PathElt
@@ -511,7 +529,8 @@ PathSequence = Comp(
 # [89] PathAlternative ::= PathSequence ( '|' PathSequence )*
 PathAlternative = Comp(
     "PathAlternative",
-    ParamList("part", PathSequence) + ZeroOrMore("|" + ParamList("part", PathSequence)),
+    ParamList("part", PathSequence) +
+    ZeroOrMore("|" + ParamList("part", PathSequence)),
 )
 
 # [88] Path ::= PathAlternative
@@ -555,14 +574,16 @@ PropertyListPathNotEmpty = (
 PropertyListPath = Optional(PropertyListPathNotEmpty)
 
 # [77] PropertyListNotEmpty ::= Verb ObjectList ( ';' ( Verb ObjectList )? )*
-PropertyListNotEmpty = Verb + ObjectList + ZeroOrMore(";" + Optional(Verb + ObjectList))
+PropertyListNotEmpty = Verb + ObjectList + \
+    ZeroOrMore(";" + Optional(Verb + ObjectList))
 
 
 # [76] PropertyList ::= Optional(PropertyListNotEmpty)
 PropertyList = Optional(PropertyListNotEmpty)
 
 # [99] BlankNodePropertyList ::= '[' PropertyListNotEmpty ']'
-BlankNodePropertyList = Group(Suppress("[") + PropertyListNotEmpty + Suppress("]"))
+BlankNodePropertyList = Group(
+    Suppress("[") + PropertyListNotEmpty + Suppress("]"))
 BlankNodePropertyList.setParseAction(expandBNodeTriples)
 
 # [101] BlankNodePropertyListPath ::= '[' PropertyListPathNotEmpty ']'
@@ -595,7 +616,8 @@ TriplesTemplate = ParamList("triples", TriplesSameSubject) + ZeroOrMore(
 # [51] QuadsNotTriples ::= 'GRAPH' VarOrIri '{' Optional(TriplesTemplate) '}'
 QuadsNotTriples = Comp(
     "QuadsNotTriples",
-    Keyword("GRAPH") + Param("term", VarOrIri) + "{" + Optional(TriplesTemplate) + "}",
+    Keyword("GRAPH") + Param("term", VarOrIri) +
+    "{" + Optional(TriplesTemplate) + "}",
 )
 
 # [50] Quads ::= Optional(TriplesTemplate) ( QuadsNotTriples '.'? Optional(TriplesTemplate) )*
@@ -644,7 +666,8 @@ GroupOrUnionGraphPattern = Comp(
 Expression = Forward()
 
 # [72] ExpressionList ::= NIL | '(' Expression ( ',' Expression )* ')'
-ExpressionList = NIL | Group(Suppress("(") + delimitedList(Expression) + Suppress(")"))
+ExpressionList = NIL | Group(
+    Suppress("(") + delimitedList(Expression) + Suppress(")"))
 
 # [122] RegexExpression ::= 'REGEX' '(' Expression ',' Expression ( ',' Expression )? ')'
 RegexExpression = Comp(
@@ -706,7 +729,8 @@ NotExistsFunc = Comp(
 # | 'GROUP_CONCAT' '(' Optional('DISTINCT') Expression ( ';' 'SEPARATOR' '=' String )? ')'
 
 _Distinct = Optional(Keyword("DISTINCT"))
-_AggregateParams = "(" + Param("distinct", _Distinct) + Param("vars", Expression) + ")"
+_AggregateParams = "(" + Param("distinct", _Distinct) + \
+    Param("vars", Expression) + ")"
 
 Aggregate = (
     Comp(
@@ -728,7 +752,8 @@ Aggregate = (
         + "("
         + Param("distinct", _Distinct)
         + Param("vars", Expression)
-        + Optional(";" + Keyword("SEPARATOR") + "=" + Param("separator", String))
+        + Optional(";" + Keyword("SEPARATOR") +
+                   "=" + Param("separator", String))
         + ")",
     )
 )
@@ -807,7 +832,8 @@ BuiltInCall = (
         + ")",
     ).setEvalFn(op.Builtin_LANGMATCHES)
     | Comp(
-        "Builtin_DATATYPE", Keyword("DATATYPE") + "(" + Param("arg", Expression) + ")"
+        "Builtin_DATATYPE", Keyword("DATATYPE") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_DATATYPE)
     | Comp("Builtin_BOUND", Keyword("BOUND") + "(" + Param("arg", Var) + ")").setEvalFn(
         op.Builtin_BOUND
@@ -819,7 +845,8 @@ BuiltInCall = (
         "Builtin_URI", Keyword("URI") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_IRI)
     | Comp(
-        "Builtin_BNODE", Keyword("BNODE") + ("(" + Param("arg", Expression) + ")" | NIL)
+        "Builtin_BNODE", Keyword("BNODE") +
+        ("(" + Param("arg", Expression) + ")" | NIL)
     ).setEvalFn(op.Builtin_BNODE)
     | Comp("Builtin_RAND", Keyword("RAND") + NIL).setEvalFn(op.Builtin_RAND)
     | Comp(
@@ -829,24 +856,29 @@ BuiltInCall = (
         "Builtin_CEIL", Keyword("CEIL") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_CEIL)
     | Comp(
-        "Builtin_FLOOR", Keyword("FLOOR") + "(" + Param("arg", Expression) + ")"
+        "Builtin_FLOOR", Keyword("FLOOR") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_FLOOR)
     | Comp(
-        "Builtin_ROUND", Keyword("ROUND") + "(" + Param("arg", Expression) + ")"
+        "Builtin_ROUND", Keyword("ROUND") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_ROUND)
     | Comp(
         "Builtin_CONCAT", Keyword("CONCAT") + Param("arg", ExpressionList)
     ).setEvalFn(op.Builtin_CONCAT)
     | SubstringExpression
     | Comp(
-        "Builtin_STRLEN", Keyword("STRLEN") + "(" + Param("arg", Expression) + ")"
+        "Builtin_STRLEN", Keyword("STRLEN") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_STRLEN)
     | StrReplaceExpression
     | Comp(
-        "Builtin_UCASE", Keyword("UCASE") + "(" + Param("arg", Expression) + ")"
+        "Builtin_UCASE", Keyword("UCASE") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_UCASE)
     | Comp(
-        "Builtin_LCASE", Keyword("LCASE") + "(" + Param("arg", Expression) + ")"
+        "Builtin_LCASE", Keyword("LCASE") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_LCASE)
     | Comp(
         "Builtin_ENCODE_FOR_URI",
@@ -901,22 +933,27 @@ BuiltInCall = (
         "Builtin_YEAR", Keyword("YEAR") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_YEAR)
     | Comp(
-        "Builtin_MONTH", Keyword("MONTH") + "(" + Param("arg", Expression) + ")"
+        "Builtin_MONTH", Keyword("MONTH") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_MONTH)
     | Comp(
         "Builtin_DAY", Keyword("DAY") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_DAY)
     | Comp(
-        "Builtin_HOURS", Keyword("HOURS") + "(" + Param("arg", Expression) + ")"
+        "Builtin_HOURS", Keyword("HOURS") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_HOURS)
     | Comp(
-        "Builtin_MINUTES", Keyword("MINUTES") + "(" + Param("arg", Expression) + ")"
+        "Builtin_MINUTES", Keyword("MINUTES") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_MINUTES)
     | Comp(
-        "Builtin_SECONDS", Keyword("SECONDS") + "(" + Param("arg", Expression) + ")"
+        "Builtin_SECONDS", Keyword("SECONDS") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_SECONDS)
     | Comp(
-        "Builtin_TIMEZONE", Keyword("TIMEZONE") + "(" + Param("arg", Expression) + ")"
+        "Builtin_TIMEZONE", Keyword("TIMEZONE") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_TIMEZONE)
     | Comp(
         "Builtin_TZ", Keyword("TZ") + "(" + Param("arg", Expression) + ")"
@@ -931,13 +968,16 @@ BuiltInCall = (
         "Builtin_SHA1", Keyword("SHA1") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_SHA1)
     | Comp(
-        "Builtin_SHA256", Keyword("SHA256") + "(" + Param("arg", Expression) + ")"
+        "Builtin_SHA256", Keyword("SHA256") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_SHA256)
     | Comp(
-        "Builtin_SHA384", Keyword("SHA384") + "(" + Param("arg", Expression) + ")"
+        "Builtin_SHA384", Keyword("SHA384") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_SHA384)
     | Comp(
-        "Builtin_SHA512", Keyword("SHA512") + "(" + Param("arg", Expression) + ")"
+        "Builtin_SHA512", Keyword("SHA512") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_SHA512)
     | Comp(
         "Builtin_COALESCE", Keyword("COALESCE") + Param("arg", ExpressionList)
@@ -981,19 +1021,24 @@ BuiltInCall = (
         + ")",
     ).setEvalFn(op.Builtin_sameTerm)
     | Comp(
-        "Builtin_isIRI", Keyword("isIRI") + "(" + Param("arg", Expression) + ")"
+        "Builtin_isIRI", Keyword("isIRI") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_isIRI)
     | Comp(
-        "Builtin_isURI", Keyword("isURI") + "(" + Param("arg", Expression) + ")"
+        "Builtin_isURI", Keyword("isURI") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_isIRI)
     | Comp(
-        "Builtin_isBLANK", Keyword("isBLANK") + "(" + Param("arg", Expression) + ")"
+        "Builtin_isBLANK", Keyword("isBLANK") +
+        "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_isBLANK)
     | Comp(
-        "Builtin_isLITERAL", Keyword("isLITERAL") + "(" + Param("arg", Expression) + ")"
+        "Builtin_isLITERAL", Keyword(
+            "isLITERAL") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_isLITERAL)
     | Comp(
-        "Builtin_isNUMERIC", Keyword("isNUMERIC") + "(" + Param("arg", Expression) + ")"
+        "Builtin_isNUMERIC", Keyword(
+            "isNUMERIC") + "(" + Param("arg", Expression) + ")"
     ).setEvalFn(op.Builtin_isNUMERIC)
     | RegexExpression
     | ExistsFunc
@@ -1015,7 +1060,8 @@ iriOrFunction = (
 ) | iri
 
 # [70] FunctionCall ::= iri ArgList
-FunctionCall = Comp("Function", Param("iri", iri) + ArgList).setEvalFn(op.Function)
+FunctionCall = Comp("Function", Param("iri", iri) +
+                    ArgList).setEvalFn(op.Function)
 
 
 # [120] BrackettedExpression ::= '(' Expression ')'
@@ -1091,7 +1137,8 @@ RelationalExpression = Comp(
         | Param("op", Keyword("IN")) + Param("other", ExpressionList)
         | Param(
             "op",
-            Combine(Keyword("NOT") + Keyword("IN"), adjacent=False, joinString=" "),
+            Combine(Keyword("NOT") + Keyword("IN"),
+                    adjacent=False, joinString=" "),
         )
         + Param("other", ExpressionList)
     ),
@@ -1104,7 +1151,8 @@ ValueLogical = RelationalExpression
 # [112] ConditionalAndExpression ::= ValueLogical ( '&&' ValueLogical )*
 ConditionalAndExpression = Comp(
     "ConditionalAndExpression",
-    Param("expr", ValueLogical) + ZeroOrMore("&&" + ParamList("other", ValueLogical)),
+    Param("expr", ValueLogical) +
+    ZeroOrMore("&&" + ParamList("other", ValueLogical)),
 ).setEvalFn(op.ConditionalAndExpression)
 
 # [111] ConditionalOrExpression ::= ConditionalAndExpression ( '||' ConditionalAndExpression )*
@@ -1185,17 +1233,20 @@ Create = Comp("Create", Keyword("CREATE") + _Silent + GraphRef)
 
 # [35] Add ::= 'ADD' _Silent GraphOrDefault 'TO' GraphOrDefault
 Add = Comp(
-    "Add", Keyword("ADD") + _Silent + GraphOrDefault + Keyword("TO") + GraphOrDefault
+    "Add", Keyword("ADD") + _Silent + GraphOrDefault +
+    Keyword("TO") + GraphOrDefault
 )
 
 # [36] Move ::= 'MOVE' _Silent GraphOrDefault 'TO' GraphOrDefault
 Move = Comp(
-    "Move", Keyword("MOVE") + _Silent + GraphOrDefault + Keyword("TO") + GraphOrDefault
+    "Move", Keyword("MOVE") + _Silent + GraphOrDefault +
+    Keyword("TO") + GraphOrDefault
 )
 
 # [37] Copy ::= 'COPY' _Silent GraphOrDefault 'TO' GraphOrDefault
 Copy = Comp(
-    "Copy", Keyword("COPY") + _Silent + GraphOrDefault + Keyword("TO") + GraphOrDefault
+    "Copy", Keyword("COPY") + _Silent + GraphOrDefault +
+    Keyword("TO") + GraphOrDefault
 )
 
 # [38] InsertData ::= 'INSERT DATA' QuadData
@@ -1205,7 +1256,8 @@ InsertData = Comp("InsertData", Keyword("INSERT") + Keyword("DATA") + QuadData)
 DeleteData = Comp("DeleteData", Keyword("DELETE") + Keyword("DATA") + QuadData)
 
 # [40] DeleteWhere ::= 'DELETE WHERE' QuadPattern
-DeleteWhere = Comp("DeleteWhere", Keyword("DELETE") + Keyword("WHERE") + QuadPattern)
+DeleteWhere = Comp("DeleteWhere", Keyword(
+    "DELETE") + Keyword("WHERE") + QuadPattern)
 
 # [42] DeleteClause ::= 'DELETE' QuadPattern
 DeleteClause = Comp("DeleteClause", Keyword("DELETE") + QuadPattern)
@@ -1216,7 +1268,8 @@ InsertClause = Comp("InsertClause", Keyword("INSERT") + QuadPattern)
 # [44] UsingClause ::= 'USING' ( iri | 'NAMED' iri )
 UsingClause = Comp(
     "UsingClause",
-    Keyword("USING") + (Param("default", iri) | Keyword("NAMED") + Param("named", iri)),
+    Keyword("USING") + (Param("default", iri) |
+                        Keyword("NAMED") + Param("named", iri)),
 )
 
 # [41] Modify ::= ( 'WITH' iri )? ( DeleteClause Optional(InsertClause) | InsertClause ) ZeroOrMore(UsingClause) 'WHERE' GroupGraphPattern
@@ -1251,7 +1304,8 @@ Update1 = (
 
 # [63] InlineDataOneVar ::= Var '{' ZeroOrMore(DataBlockValue) '}'
 InlineDataOneVar = (
-    ParamList("var", Var) + "{" + ZeroOrMore(ParamList("value", DataBlockValue)) + "}"
+    ParamList("var", Var) +
+    "{" + ZeroOrMore(ParamList("value", DataBlockValue)) + "}"
 )
 
 # [64] InlineDataFull ::= ( NIL | '(' ZeroOrMore(Var) ')' ) '{' ( '(' ZeroOrMore(DataBlockValue) ')' | NIL )* '}'
@@ -1289,13 +1343,15 @@ ConstructTemplate = Suppress("{") + Optional(ConstructTriples) + Suppress("}")
 
 # [57] OptionalGraphPattern ::= 'OPTIONAL' GroupGraphPattern
 OptionalGraphPattern = Comp(
-    "OptionalGraphPattern", Keyword("OPTIONAL") + Param("graph", GroupGraphPattern)
+    "OptionalGraphPattern", Keyword(
+        "OPTIONAL") + Param("graph", GroupGraphPattern)
 )
 
 # [58] GraphGraphPattern ::= 'GRAPH' VarOrIri GroupGraphPattern
 GraphGraphPattern = Comp(
     "GraphGraphPattern",
-    Keyword("GRAPH") + Param("term", VarOrIri) + Param("graph", GroupGraphPattern),
+    Keyword("GRAPH") + Param("term", VarOrIri) +
+    Param("graph", GroupGraphPattern),
 )
 
 # [59] ServiceGraphPattern ::= 'SERVICE' _Silent VarOrIri GroupGraphPattern
@@ -1381,7 +1437,8 @@ OffsetClause = Keyword("OFFSET") + Param("offset", INTEGER)
 # [25] LimitOffsetClauses ::= LimitClause Optional(OffsetClause) | OffsetClause Optional(LimitClause)
 LimitOffsetClauses = Comp(
     "LimitOffsetClauses",
-    LimitClause + Optional(OffsetClause) | OffsetClause + Optional(LimitClause),
+    LimitClause + Optional(OffsetClause) | OffsetClause +
+    Optional(LimitClause),
 )
 
 # [18] SolutionModifier ::= GroupClause? HavingClause? OrderClause? LimitOffsetClauses?
@@ -1427,7 +1484,8 @@ SubSelect = Comp(
 )
 
 # [53] GroupGraphPattern ::= '{' ( SubSelect | GroupGraphPatternSub ) '}'
-GroupGraphPattern <<= Suppress("{") + (SubSelect | GroupGraphPatternSub) + Suppress("}")
+GroupGraphPattern <<= Suppress(
+    "{") + (SubSelect | GroupGraphPatternSub) + Suppress("}")
 
 # [7] SelectQuery ::= SelectClause DatasetClause* WhereClause SolutionModifier
 SelectQuery = Comp(
@@ -1528,7 +1586,8 @@ def expandUnicodeEscapes(q: str) -> str:
         try:
             return chr(int(m.group(1), 16))
         except (ValueError, OverflowError) as e:
-            raise ValueError("Invalid unicode code point: " + m.group(1)) from e
+            raise ValueError(
+                "Invalid unicode code point: " + m.group(1)) from e
 
     return expandUnicodeEscapes_re.sub(expand, q)
 
