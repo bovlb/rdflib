@@ -69,7 +69,7 @@ def expandTriples(terms: ParseResults) -> List[Any]:
             if t == ",":
                 res.extend([last_subject, last_predicate])
             elif t == ";":
-                if i + 1 == l_ or terms[i + 1] in ";.":
+                if i + 1 == len(terms) or terms[i + 1] == ";" or terms[i + 1] == ".":
                     continue  # this semicolon is spurious
                 res.append(last_subject)
             elif isinstance(t, list):
@@ -82,15 +82,15 @@ def expandTriples(terms: ParseResults) -> List[Any]:
                     res += t  # Don't update last_subject/last_predicate
                 # is this bnode the subject of more triples?
                 if i + 1 < l_ and terms[i + 1] not in ".,;":
-                    last_subject = t[0]
+                    last_subject, last_predicate = t[0], None
                     res.append(t[0])
             elif isinstance(t, ParseResults):
                 res += t.asList()
             elif t != ".":
                 res.append(t)
-                if len(res) % 3 == 1:
+                if (len(res) % 3) == 1:
                     last_subject = t
-                elif len(res) % 3 == 2:
+                elif (len(res) % 3) == 2:
                     last_predicate = t
             if DEBUG:
                 print(len(res), t)
