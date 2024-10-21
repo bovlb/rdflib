@@ -106,6 +106,10 @@ algebra_tests = [
         "Test if basic graph patterns are properly translated into the query text.",
     ),
     AlgebraTest(
+        "test_graph_patterns__bnode_subject",
+        "Test if a blank node subject gets properly translated into the query text.",
+    ),
+    AlgebraTest(
         "test_graph_patterns__extend",
         'Test if "extend" (=Bind explicitly or implicitly in projection)'
         "gets properly translated into the query text.",
@@ -277,7 +281,7 @@ def test_all_files_used(data_path: Path) -> None:
     assert expected_files == all_files_names
 
 
-@pytest.mark.parametrize("test_spec", [test.pytest_param() for test in algebra_tests])
+@ pytest.mark.parametrize("test_spec", [test.pytest_param() for test in algebra_tests])
 def test_roundtrip(test_spec: AlgebraTest, data_path: Path) -> None:
     """
     Query remains the same over two successive parse and translate cycles.
@@ -344,5 +348,6 @@ def test_sparql_blank_node_comma():
 
     parse_results = parser.parseQuery(query)
     triples = parse_results[1]["where"].part[0].triples[0]
-    s_count = sum(1 for i in range(0, len(triples), 3) if triples[i] == Variable("s"))
+    s_count = sum(1 for i in range(0, len(triples), 3)
+                  if triples[i] == Variable("s"))
     assert s_count == 2, f"Found ?s as subject {s_count} times, expected 2"
